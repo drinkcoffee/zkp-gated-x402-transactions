@@ -1,5 +1,6 @@
 //! The zero knowledge circuit. If the public values break a rule, this program panics
-//! and so no proof can be generated.
+//! before it commits anything. A prover could still prove that failed run, but the proof
+//! has a non-zero exit code and no public values, and SP1's verifiers reject it.
 
 #![no_main]
 sp1_zkvm::entrypoint!(main);

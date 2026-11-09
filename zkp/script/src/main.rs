@@ -68,10 +68,15 @@ fn main() -> ExitCode {
     stdin.write_vec(encoded.clone());
 
     let client = ProverClient::from_env();
-    client
+    // A program that panics does not make `run` return an error, so check the exit code.
+    let (_, report) = client
         .execute(ELF, stdin.clone())
         .run()
         .expect("the program failed to execute");
+    if report.exit_code != 0 {
+        eprintln!("error: the circuit rejected the public values");
+        return ExitCode::from(EXIT_REJECTED);
+    }
 
     let pk = client.setup(ELF).expect("failed to set up the program");
     let request = client.prove(&pk, stdin);

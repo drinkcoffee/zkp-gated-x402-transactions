@@ -30,12 +30,7 @@
   <!-- x402 server -->
   <rect class="box service" x="1195" y="53" width="1108" height="480"/>
   <text x="1217" y="115">x402 server</text>
-  <text x="1217" y="168">Vercel app</text>
-  <text x="1217" y="221">Python</text>
-  <text x="1217" y="326">Services:</text>
-  <text x="1217" y="379">* Get temperature in Melbourne on a day</text>
-  <text x="1217" y="432">* Get temperature in Brisbane on a day</text>
-  <text x="1217" y="484">* Buy a share</text>
+
 
   <!-- Prompt -->
   <rect class="box plain" x="24" y="712" width="298" height="117"/>
@@ -58,8 +53,9 @@
   <text x="727" y="1224">Facilitator</text>
 
   <!-- Onchain components -->
-  <rect class="box component" x="1211" y="817" width="255" height="204"/>
-  <text x="1221" y="865">EIP 7702</text>
+  <rect class="box component" x="1211" y="817" width="265" height="204"/>
+  <text x="1221" y="865">Payment Gate</text>
+  <text x="1221" y="918">Contract</text>
 
   <rect class="box component" x="1572" y="697" width="255" height="205"/>
   <text x="1581" y="746">x402 Client</text>

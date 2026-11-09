@@ -32,6 +32,12 @@ The list and the rules are compiled into the circuit, in `lib/src/lib.rs`. Chang
 
 ## Setup
 
+Install the Protocol Buffers compiler, which the SP1 SDK needs to build. On macOS:
+
+```sh
+brew install protobuf
+```
+
 Install Rust:
 
 ```sh
@@ -117,6 +123,7 @@ Public values that break a rule fail before any prover is used, and no file is w
 ## Tests
 
 ```sh
-cargo test --release       # the rules, and the compiled circuit
-cd prover && uv run pytest # the Python program, using a stand-in for the Rust host
+cargo test --release                 # the rules, and the compiled circuit
+cargo test --release -- --ignored    # real proofs generated locally, which is slower
+cd prover && uv run pytest           # the Python program, using a stand-in for the Rust host
 ```
