@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2420 1510" role="img" aria-labelledby="title">
+  <title id="title">Architecture of ZKP gated x402 transactions</title>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="34" markerHeight="34" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0,0 L10,5 L0,10 L3,5 Z" fill="#333333"/>
+    </marker>
+    <style>
+      text { font-family: "Noto Sans", "Open Sans", -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 39px; fill: #222222; }
+      .box { stroke: #222222; stroke-width: 5; }
+      .component { fill: #ffc5c5; }
+      .service { fill: #2fc85a; }
+      .plain { fill: #ffffff; }
+      .edge { fill: none; stroke: #333333; stroke-width: 5; marker-end: url(#arrow); }
+      .dashed { stroke-dasharray: 22 12; }
+    </style>
+  </defs>
+
+  <rect width="2420" height="1510" fill="#ffffff"/>
+
+  <!-- Blockchain boundary -->
+  <rect class="box plain" x="1181" y="637" width="1165" height="853"/>
+  <text x="1222" y="718">Blockchain</text>
+
+  <!-- Succinct Prover Cloud -->
+  <path class="box" fill="#629bf0" d="M427,290 C470,240 590,240 633,295 C700,270 800,290 787,352 C900,360 920,470 798,490 C810,560 690,570 627,545 C580,585 480,585 440,541 C360,565 240,540 272,455 C170,430 190,350 302,348 C290,290 390,270 427,290 Z"/>
+  <text x="547" y="400" text-anchor="middle" style="fill:#ffffff;font-size:44px">Succinct Prover</text>
+  <text x="547" y="460" text-anchor="middle" style="fill:#ffffff;font-size:44px">Cloud</text>
+
+  <!-- x402 server -->
+  <rect class="box service" x="1195" y="53" width="1108" height="480"/>
+  <text x="1217" y="115">x402 server</text>
+  <text x="1217" y="168">Vercel app</text>
+  <text x="1217" y="221">Python</text>
+  <text x="1217" y="326">Services:</text>
+  <text x="1217" y="379">* Get temperature in Melbourne on a day</text>
+  <text x="1217" y="432">* Get temperature in Brisbane on a day</text>
+  <text x="1217" y="484">* Buy a share</text>
+
+  <!-- Prompt -->
+  <rect class="box plain" x="24" y="712" width="298" height="117"/>
+  <text x="30" y="756">Prompt</text>
+
+  <!-- AI Agent -->
+  <rect class="box component" x="420" y="668" width="254" height="205"/>
+  <text x="428" y="717">AI Agent</text>
+  <text x="428" y="770">LangChain</text>
+  <text x="428" y="822">Python</text>
+
+  <!-- Logic in Rust and RISC V -->
+  <rect class="box component" x="772" y="697" width="255" height="147"/>
+  <text x="779" y="743">Logic in Rust</text>
+  <rect class="box component" x="785" y="848" width="229" height="91"/>
+  <text x="789" y="891">RISC V</text>
+
+  <!-- Facilitator -->
+  <rect class="box service" x="714" y="1171" width="313" height="266"/>
+  <text x="727" y="1224">Facilitator</text>
+
+  <!-- Onchain components -->
+  <rect class="box component" x="1211" y="817" width="255" height="204"/>
+  <text x="1221" y="865">EIP 7702</text>
+
+  <rect class="box component" x="1572" y="697" width="255" height="205"/>
+  <text x="1581" y="746">x402 Client</text>
+  <text x="1581" y="799">Address</text>
+
+  <rect class="box component" x="1636" y="961" width="255" height="205"/>
+  <text x="1646" y="1010">USDC</text>
+  <text x="1646" y="1063">ERC 20</text>
+
+  <rect class="box component" x="2048" y="943" width="255" height="205"/>
+  <text x="2057" y="992">x402 Server</text>
+  <text x="2057" y="1045">Address</text>
+
+  <rect class="box component" x="1284" y="1233" width="255" height="204"/>
+  <text x="1293" y="1281">x402</text>
+  <text x="1293" y="1334">Facilitator</text>
+
+  <!-- Edges -->
+  <path class="edge" d="M322,770 L418,770"/>
+  <path class="edge" d="M547,668 C547,640 549,610 549,577"/>
+  <path class="edge" d="M675,682 C950,682 950,386 1193,386"/>
+  <path class="edge" d="M675,770 L770,770"/>
+  <path class="edge" d="M594,873 C594,1120 950,1000 1209,1000"/>
+  <path class="edge" d="M547,873 C547,1050 500,1305 712,1305"/>
+  <path class="edge" d="M1027,1304 C1130,1304 1170,1335 1282,1335"/>
+  <path class="edge" d="M1339,1021 C1339,1130 1480,1065 1634,1065"/>
+  <path class="edge" d="M1412,1233 C1412,1130 1763,1330 1763,1168"/>
+  <path class="edge dashed" d="M1432,817 C1432,770 1480,790 1570,800"/>
+  <path class="edge dashed" d="M1827,800 C2000,795 2175,780 2175,941"/>
+</svg>
