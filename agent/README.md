@@ -1,6 +1,6 @@
 # x402 agent
 
-Command line x402 client. It requests a URL and reports the HTTP response and any x402 payment information in it. It does not sign or submit payments yet.
+Command line x402 client. It can report the x402 payment information a URL returns, and pay for the resource in USDC on Base.
 
 ## Usage
 
@@ -60,24 +60,36 @@ The exit code is 0 whenever the server responds, including with a 402 or a 5xx. 
 
 ## Paying for a resource
 
-Copy `.env.example` to `.env` and set `X402_ACCOUNT_ADDRESS`, then run:
+**Approving a payment moves real USDC on Base mainnet.**
+
+Copy `.env.example` to `.env`, set `X402_ACCOUNT_ADDRESS` and `X402_PRIVATE_KEY`, then run:
 
 ```sh
-uv run x402-agent pay <url>
+uv run x402-agent pay G <url>
+uv run x402-agent pay P <url> '{"city": "Melbourne"}'
 ```
+
+The first argument is the request type, in either case: `G` for GET or `P` for POST. With `P`, you can add JSON encoded parameters, which are sent unchanged as the request content with `Content-Type: application/json`. Without them, the POST has no content. Parameters that are not valid JSON, or that are given with `G`, are rejected with exit code 2 before any request is made.
 
 ```text
 Service: Weather API
 URL: https://example.com/paid
 Description: Current weather
 Payment: $0.01
+Pay to: 0x209693Bc6afc0C5328bA36FaF03C514EF312287C
 
 Your balance (0xYourAddress) is: USDC$ 12.34
 
 Do you approve this transaction? 
 ```
 
-Press `Y` or `y` to approve, or any other key to cancel. There's no need to press Enter. Payment submission is not implemented yet, so approving only prints `not implemented yet`.
+Press `Y` or `y` to approve, or any other key to cancel. There's no need to press Enter.
+
+Approving signs an EIP-3009 USDC transfer for exactly the amount and recipient in the payment option, and resends the original request with the signed payment in a `PAYMENT-SIGNATURE` header. The server submits the transfer and pays the gas, so the account needs no ETH. The command then prints the transaction, the HTTP status and the response content.
+
+A failed payment is never retried automatically. If the command reports that a payment may still settle, check the account on chain before trying again.
+
+A signed payment is never sent to a redirect target, and stays valid for at most an hour. It is not encrypted by the client, so only pay over `https://` URLs: anyone who intercepts it on a plain `http://` connection can submit it.
 
 The command exits with code 1 and prints an error if:
 
@@ -85,6 +97,8 @@ The command exits with code 1 and prints an error if:
 - there is no payment option for Base (`eip155:8453`)
 - no Base option accepts USDC (`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`)
 - the balance cannot be read
+
+It also exits with code 1 if the Base USDC options don't use the `exact` scheme with EIP-3009 transfers, if the balance is too low, or if the payment fails.
 
 If several options match, the first is used. Amounts are shown to two decimal places: the payment rounds up and the balance rounds down.
 
@@ -94,7 +108,8 @@ Settings are read from a `.env` file in the current directory or the nearest par
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
-| `X402_ACCOUNT_ADDRESS` | Account whose balance is shown | None (required for `pay`) |
+| `X402_ACCOUNT_ADDRESS` | Account that pays | None (required for `pay`) |
+| `X402_PRIVATE_KEY` | Private key for that account | None (required to approve a payment) |
 | `BASE_RPC_URL` | Base JSON-RPC endpoint | `https://mainnet.base.org` |
 
 ## Tests

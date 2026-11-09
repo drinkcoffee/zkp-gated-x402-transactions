@@ -13,6 +13,8 @@ from dotenv import find_dotenv, load_dotenv
 from x402_agent.pay import PaymentError, pay
 from x402_agent.x402 import TIMEOUT_SECONDS, decode_x402
 
+PAY_METHODS = {"P": "POST", "G": "GET"}
+
 
 def get(url: str) -> dict[str, Any]:
     """GET a URL and return the HTTP response and its decoded x402 information."""
@@ -46,8 +48,27 @@ def main(argv: Sequence[str] | None = None) -> int:
     pay_parser = commands.add_parser(
         "pay", help="Show the payment a URL requires and ask for approval"
     )
+    pay_parser.add_argument(
+        "type",
+        type=str.upper,
+        choices=sorted(PAY_METHODS),
+        help="request type, in either case: P for POST, G for GET",
+    )
     pay_parser.add_argument("url", help="URL to request")
+    pay_parser.add_argument(
+        "params", nargs="?", help="JSON encoded parameters to POST (type P only)"
+    )
     args = parser.parse_args(argv)
+
+    content = None
+    if args.command == "pay" and args.params is not None:
+        if args.type != "P":
+            pay_parser.error("JSON parameters can only be used with type P")
+        try:
+            content = args.params.encode()
+            json.loads(content)
+        except ValueError as exc:
+            pay_parser.error(f"parameters are not valid JSON: {exc}")
 
     # Variables already set in the environment take precedence over the file.
     load_dotenv(find_dotenv(usecwd=True))
@@ -56,7 +77,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "get":
             print(json.dumps(get(args.url), indent=2))
         else:
-            pay(args.url)
+            pay(PAY_METHODS[args.type], args.url, content)
     except (httpx.HTTPError, httpx.InvalidURL) as exc:
         print(f"error: request to {args.url} failed: {exc}", file=sys.stderr)
         return 1
