@@ -1,0 +1,7 @@
+[workspace]
+members = ["lib", "program", "script"]
+resolver = "2"
+
+[workspace.dependencies]
+alloy-primitives = "1"
+alloy-sol-types = "1"

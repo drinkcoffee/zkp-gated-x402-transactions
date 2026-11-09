@@ -1,0 +1,9 @@
+[package]
+name = "zkp-program"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alloy-sol-types = { workspace = true }
+sp1-zkvm = "6.10"
+zkp-lib = { path = "../lib" }
