@@ -4,12 +4,15 @@ A [Foundry](https://getfoundry.sh) project with `GatedTransfer`, a contract that
 
 ## How it works
 
-The x402 client calls `gatedTransfer(paymentAmount, proofBytes)`. The contract:
+The proof's public values are the chain ID, a nonce, the Unix time the proof was issued (`issuedAt`), and the payment amount. The x402 client calls `gatedTransfer(nonce, issuedAt, paymentAmount, proofBytes)`. The contract:
 
 1. Checks that the caller is the x402 client.
-2. Checks that the proof has not been used before.
-3. Asks Succinct's SP1 verifier to check the proof against the circuit's verification key (`programVKey`), with `abi.encode(paymentAmount)` as the public values. The verifier reverts if the proof is not valid, which means the circuit did not accept `paymentAmount`.
-4. Transfers `paymentAmount` USDC from the treasury to the x402 client.
+2. Checks that `issuedAt` is not in the future, and that the proof is no older than `proofValidity`. That is 10 minutes by default.
+3. Checks that the nonce has not been used before, then marks it as used.
+4. Asks Succinct's SP1 verifier to check the proof against the circuit's verification key (`programVKey`), with `abi.encode(block.chainid, nonce, issuedAt, paymentAmount)` as the public values. The verifier reverts if the proof is not valid. That happens if the proof is for another chain, or for different values, or if the circuit did not accept `paymentAmount`.
+5. Transfers `paymentAmount` USDC from the treasury to the x402 client.
+
+If any step fails, the whole call reverts, and the nonce stays unused.
 
 The treasury must have approved the contract to spend its USDC. USDC has no operator role, so this is an ERC-20 allowance, set with `approve`.
 
@@ -21,13 +24,15 @@ The treasury must have approved the contract to spend its USDC. USDC has no oper
 | Treasury | `initialize` | The owner, with `setTreasury` |
 | x402 client | `initialize` | The owner, with `setX402Client` |
 | Program verification key | `initialize` | The owner, with `setProgramVKey` |
+| Time limit for proofs (`proofValidity`) | `initialize`, to 10 minutes | The owner, with `setProofValidity` |
 
 The contract runs behind an ERC1967 proxy and upgrades with UUPS. Only the owner can upgrade it, with `upgradeToAndCall`. Settings are kept in [ERC-7201](https://eips.ethereum.org/EIPS/eip-7201) namespaced storage, so new versions can add fields without overwriting them. Always use the proxy's address, never the implementation's.
 
 ## Limits
 
 - **A proof proves little on its own.** The list of allowed addresses and the $0.01 limit are public, so anyone can make a valid proof for any amount up to $0.01. Only allowing the x402 client to call `gatedTransfer` is the main protection.
-- **Replay protection is weak.** Each proof's bytes can be used once, but Groth16 proofs can be altered into different bytes that still verify, and new proofs are easy to make. The x402 client can transfer up to $0.01 per call, as many times as it likes, up to the treasury's allowance. Keep the allowance small.
+- **Each proof works once, but new proofs are easy to make.** The nonce is a public value, so a proof cannot be reused, even with its bytes altered. A proof also expires after `proofValidity`, and only works on the chain it was made for. But anyone can make a new proof with a new nonce, so the x402 client can transfer up to $0.01 per call, as many times as it likes, up to the treasury's allowance. Keep the allowance small.
+- **Proving time counts against the time limit.** `zkp-prove` sets `issuedAt` before proving starts. If proving and submitting take longer than `proofValidity`, the proof expires, and you need a new one.
 - **Only Groth16 proofs work.** The deployment script uses Succinct's Groth16 gateway, which is also `zkp-prove`'s default. PLONK proofs need a contract deployed with the PLONK gateway, `0x3B6041173B80E77f038f3F2C0f9744f04837185e`.
 
 ## Setup
@@ -87,8 +92,8 @@ cast send 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 "approve(address,uint256)" 
 
 ## Making a transfer
 
-Generate a proof with `zkp-prove`, then send `publicValues.paymentAmount` and `arguments.proofBytes` from its output, from the x402 client's account:
+Generate a proof with `zkp-prove`, then, within the time limit, send the values in `gatedTransfer.arguments` from its output, from the x402 client's account:
 
 ```sh
-cast send <proxy address> "gatedTransfer(uint256,bytes)" 500 <proofBytes> --rpc-url base --account x402client
+cast send <proxy address> "gatedTransfer(uint256,uint256,uint256,bytes)" <nonce> <issuedAt> <paymentAmount> <proofBytes> --rpc-url base --account x402client
 ```

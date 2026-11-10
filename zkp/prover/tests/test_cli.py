@@ -65,8 +65,13 @@ def isolated(tmp_path, monkeypatch):
     RPC_CALLS.clear()
 
 
+NONCE = 2**255 + 12345
+ISSUED_AT = 1_800_000_000
+FIXED = ["--nonce", str(NONCE), "--issued-at", str(ISSUED_AT)]
+
+
 def run(rpc_url, *args, amount="500", path=""):
-    return cli.main([ADDRESS, amount, "--rpc-url", rpc_url + path, *args])
+    return cli.main([ADDRESS, amount, "--rpc-url", rpc_url + path, *FIXED, *args])
 
 
 def written(tmp_path):
@@ -77,8 +82,21 @@ def test_writes_a_submission_ready_for_base(rpc_url, tmp_path):
     assert run(rpc_url) == 0
     result = written(tmp_path)
     assert result["readyForBase"] is True
-    assert result["chainId"] == 8453
-    assert result["publicValues"] == {"paymentAmount": "500"}
+    assert result["publicValues"] == {
+        "chainId": "8453",
+        "nonce": str(NONCE),
+        "issuedAt": str(ISSUED_AT),
+        "paymentAmount": "500",
+    }
+    assert result["gatedTransfer"] == {
+        "function": "gatedTransfer(uint256,uint256,uint256,bytes)",
+        "arguments": {
+            "nonce": str(NONCE),
+            "issuedAt": str(ISSUED_AT),
+            "paymentAmount": "500",
+            "proofBytes": "0x" + "cd" * 40,
+        },
+    }
     assert result["proofSystem"] == "groth16"
     assert result["verifier"] == GROTH16_GATEWAY
     assert result["function"] == "verifyProof(bytes32,bytes,bytes)"
@@ -95,11 +113,29 @@ def test_calldata_is_the_verifier_call(rpc_url, tmp_path):
     assert proof == bytes.fromhex("cd" * 40)
 
 
-def test_the_only_public_value_is_the_payment_amount(rpc_url, tmp_path):
-    run(rpc_url, amount="1234")
+def test_public_values_are_chain_nonce_time_and_amount(rpc_url, tmp_path):
+    run(rpc_url, "--chain-id", "84532", amount="1234")
     encoded = bytes.fromhex(written(tmp_path)["arguments"]["publicValues"][2:])
-    assert len(encoded) == 32
-    assert decode(["uint256"], encoded) == (1234,)
+    assert len(encoded) == 4 * 32
+    assert decode(["uint256"] * 4, encoded) == (84532, NONCE, ISSUED_AT, 1234)
+
+
+def test_defaults_to_a_random_nonce_and_the_current_time(rpc_url, tmp_path, monkeypatch):
+    monkeypatch.setattr(cli.time, "time", lambda: 1_812_345_678.9)
+    nonces = []
+    for name in ["a.json", "b.json"]:
+        assert cli.main([ADDRESS, "500", "--rpc-url", rpc_url, "--output", name]) == 0
+        public = json.loads((tmp_path / name).read_text())["publicValues"]
+        assert public["issuedAt"] == "1812345678"
+        nonces.append(int(public["nonce"]))
+    assert nonces[0] != nonces[1]
+    assert all(n.bit_length() > 128 for n in nonces)
+
+
+def test_a_proof_for_another_chain_is_not_ready_for_base(rpc_url, tmp_path, capsys):
+    assert run(rpc_url, "--chain-id", "1") == 0
+    assert written(tmp_path)["readyForBase"] is False
+    assert "for chain 1" in capsys.readouterr().err
 
 
 def test_the_address_is_not_in_the_output(rpc_url, tmp_path, capsys):
@@ -113,7 +149,13 @@ def test_inputs_go_to_the_host_on_stdin(rpc_url, tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_HOST_RECORD", str(record))
     assert run(rpc_url, amount="1234") == 0
     sent = json.loads(record.read_text())
-    assert sent["stdin"] == {"toBeCheckedAddress": ADDRESS, "paymentAmount": "1234"}
+    assert sent["stdin"] == {
+        "toBeCheckedAddress": ADDRESS,
+        "chainId": "8453",
+        "nonce": str(NONCE),
+        "issuedAt": str(ISSUED_AT),
+        "paymentAmount": "1234",
+    }
     assert not any(ADDRESS[2:].lower() in arg.lower() for arg in sent["argv"])
 
 
@@ -168,6 +210,7 @@ def test_rejected_values_write_nothing(rpc_url, tmp_path, monkeypatch, capsys):
         ("no-output", "wrote no valid proof"),
         ("wrong-values", "different public values"),
         ("address-leaked", "different public values"),
+        ("wrong-nonce", "different public values"),
         ("bad-vkey", "invalid vkey"),
     ],
 )
@@ -221,6 +264,10 @@ def test_cargo_not_installed(rpc_url, monkeypatch, capsys):
         [ADDRESS],
         [ADDRESS, "10000", "500"],
         [ADDRESS, "500", "--system", "stark"],
+        [ADDRESS, "500", "--nonce", "-1"],
+        [ADDRESS, "500", "--nonce", str(2**256)],
+        [ADDRESS, "500", "--issued-at", "soon"],
+        [ADDRESS, "500", "--chain-id", "0x2105"],
     ],
 )
 def test_invalid_arguments(args):

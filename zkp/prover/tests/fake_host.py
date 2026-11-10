@@ -14,7 +14,8 @@ args = parser.parse_args()
 
 # The inputs arrive on stdin. Record them so tests can check how they were sent.
 inputs = json.load(sys.stdin)
-if set(inputs) != {"toBeCheckedAddress", "paymentAmount"}:
+NAMES = ["chainId", "nonce", "issuedAt", "paymentAmount"]
+if set(inputs) != {"toBeCheckedAddress", *NAMES}:
     sys.exit(2)
 if record := os.environ.get("FAKE_HOST_RECORD"):
     with open(record, "w") as file:
@@ -29,12 +30,14 @@ if mode == "crash":
 if mode == "no-output":
     sys.exit(0)
 
-amount = int(inputs["paymentAmount"])
+values = [int(inputs[name]) for name in NAMES]
 if mode == "wrong-values":
-    amount += 1
-public_values = encode(["uint256"], [amount])
+    values[3] += 1
+if mode == "wrong-nonce":
+    values[1] += 1
+public_values = encode(["uint256"] * 4, values)
 if mode == "address-leaked":
-    public_values = encode(["address", "uint256"], [inputs["toBeCheckedAddress"], amount])
+    public_values = encode(["address"] + ["uint256"] * 4, [inputs["toBeCheckedAddress"], *values])
 proof = {
     "vkey": "0x" + ("ab" * 32 if mode != "bad-vkey" else "ab"),
     "publicValues": "0x" + public_values.hex(),

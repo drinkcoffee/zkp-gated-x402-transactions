@@ -1,18 +1,23 @@
 """Generate a zero knowledge proof for some inputs, ready to submit to Base.
 
 The rules on the inputs live only in the circuit. This program runs the Rust host to
-generate the proof, then packages it as a call to Succinct's verifier on Base. The
-payment amount is the proof's only public value. The to be checked address is private,
-and is never written to the output.
+generate the proof, then packages it for GatedTransfer and Succinct's verifier on Base.
+
+The to be checked address is private, and is never written to the output. The proof's
+public values are the chain ID, a random nonce, the time the proof was issued, and the
+payment amount. GatedTransfer checks the chain ID, accepts each nonce once, and rejects
+the proof once it is older than its time limit, which is 10 minutes by default.
 """
 
 import argparse
 import json
 import os
 import re
+import secrets
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +38,10 @@ VERIFIER_GATEWAYS = {
     "plonk": "0x3B6041173B80E77f038f3F2C0f9744f04837185e",
 }
 VERIFY_FUNCTION = "verifyProof(bytes32,bytes,bytes)"
+GATED_TRANSFER_FUNCTION = "gatedTransfer(uint256,uint256,uint256,bytes)"
+
+# The public values, in the order the circuit commits them.
+PUBLIC_VALUE_NAMES = ("chainId", "nonce", "issuedAt", "paymentAmount")
 
 ADDRESS_PATTERN = re.compile(r"0x[0-9a-fA-F]{40}")
 EXIT_REJECTED = 3  # The host's exit code for public values that break a rule.
@@ -67,12 +76,15 @@ def host_command(system: str, output: Path) -> list[str]:
     ]  # fmt: skip
 
 
-def generate_proof(address: str, amount: int, system: str) -> dict[str, Any]:
+def generate_proof(address: str, public: dict[str, int], system: str) -> dict[str, Any]:
     """Run the Rust host and return the proof it wrote."""
     with tempfile.TemporaryDirectory() as directory:
         output = Path(directory) / "proof.json"
         command = host_command(system, output)
-        inputs = json.dumps({"toBeCheckedAddress": address, "paymentAmount": str(amount)})
+        # Decimal strings, so no JSON reader loses precision on 256 bit numbers.
+        inputs = json.dumps(
+            {"toBeCheckedAddress": address, **{name: str(public[name]) for name in PUBLIC_VALUE_NAMES}}
+        )
         try:
             # Send the host's stdout to file descriptor 2, the process's stderr.
             result = subprocess.run(command, cwd=ZKP_DIR, input=inputs.encode(), stdout=2)
@@ -100,7 +112,7 @@ def _hex_bytes(proof: dict[str, Any], field: str) -> bytes:
         raise ProofError(f"the proof host wrote an invalid {field}") from None
 
 
-def build_submission(proof: dict[str, Any], amount: int, system: str) -> dict[str, Any]:
+def build_submission(proof: dict[str, Any], public: dict[str, int], system: str) -> dict[str, Any]:
     """Package a proof as a call to the verifier, after checking what it proves."""
     vkey = _hex_bytes(proof, "vkey")
     public_values = _hex_bytes(proof, "publicValues")
@@ -108,18 +120,26 @@ def build_submission(proof: dict[str, Any], amount: int, system: str) -> dict[st
     if len(vkey) != 32:
         raise ProofError("the proof host wrote an invalid vkey")
 
-    # Only the payment amount is public. Anything else could reveal the private address.
-    if public_values != encode(["uint256"], [amount]):
+    # Only these values are public. Anything else could reveal the private address.
+    expected = encode(["uint256"] * 4, [public[name] for name in PUBLIC_VALUE_NAMES])
+    if public_values != expected:
         raise ProofError("the proof commits to different public values than were requested")
 
     selector = keccak(text=VERIFY_FUNCTION)[:4]
     arguments = encode(["bytes32", "bytes", "bytes"], [vkey, public_values, proof_bytes])
+    decoded = dict(zip(PUBLIC_VALUE_NAMES, decode(["uint256"] * 4, public_values)))
     return {
         "readyForBase": False,
-        "chainId": BASE_CHAIN_ID,
-        "publicValues": {
-            # A string, because JSON readers often lose precision on large numbers.
-            "paymentAmount": str(decode(["uint256"], public_values)[0]),
+        # Strings, because JSON readers often lose precision on large numbers.
+        "publicValues": {name: str(value) for name, value in decoded.items()},
+        "gatedTransfer": {
+            "function": GATED_TRANSFER_FUNCTION,
+            "arguments": {
+                "nonce": str(decoded["nonce"]),
+                "issuedAt": str(decoded["issuedAt"]),
+                "paymentAmount": str(decoded["paymentAmount"]),
+                "proofBytes": proof["proof"],
+            },
         },
         "proofSystem": system,
         "verifier": VERIFIER_GATEWAYS[system],
@@ -164,8 +184,15 @@ def run(args: argparse.Namespace) -> None:
 
     system = args.system
     address = args.to_be_checked_address
-    proof = generate_proof(address, args.payment_amount, system)
-    submission = build_submission(proof, args.payment_amount, system)
+    public = {
+        "chainId": args.chain_id,
+        "nonce": secrets.randbits(256) if args.nonce is None else args.nonce,
+        # Taken before proving, so proving time counts against the proof's time limit.
+        "issuedAt": int(time.time()) if args.issued_at is None else args.issued_at,
+        "paymentAmount": args.payment_amount,
+    }
+    proof = generate_proof(address, public, system)
+    submission = build_submission(proof, public, system)
 
     if submission["arguments"]["proofBytes"] == "0x":
         _write(submission, args.output)
@@ -178,9 +205,16 @@ def run(args: argparse.Namespace) -> None:
     except ProofError:
         _write(submission, args.output)
         raise
-    submission["readyForBase"] = True
+    submission["readyForBase"] = args.chain_id == BASE_CHAIN_ID
     _write(submission, args.output)
     print("The verifier on Base accepted the proof", file=sys.stderr)
+    if not submission["readyForBase"]:
+        print(f"The proof is for chain {args.chain_id}, so GatedTransfer on Base rejects it", file=sys.stderr)
+    print(
+        f"GatedTransfer accepts it until its time limit after issuedAt ({public['issuedAt']})"
+        " has passed, which is 10 minutes by default",
+        file=sys.stderr,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -194,6 +228,15 @@ def main(argv: list[str] | None = None) -> int:
         "--output", type=Path, default=Path("proof.json"), help="file to write the result to"
     )
     parser.add_argument("--rpc-url", help="Base JSON-RPC endpoint used to check the proof")
+    parser.add_argument(
+        "--chain-id", type=_uint256, default=BASE_CHAIN_ID, help="chain the proof is for (public)"
+    )
+    parser.add_argument(
+        "--nonce", type=_uint256, help="nonce, used once (public). Default: a random 256 bit number"
+    )
+    parser.add_argument(
+        "--issued-at", type=_uint256, help="Unix time the proof is issued (public). Default: now"
+    )
     args = parser.parse_args(argv)
 
     load_dotenv(ZKP_DIR / ".env")

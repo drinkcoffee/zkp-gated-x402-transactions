@@ -37,6 +37,8 @@ contract DeployForkTest is Test {
         assertEq(gated.treasury(), treasury);
         assertEq(gated.x402Client(), client);
         assertEq(gated.programVKey(), VKEY);
+        assertEq(gated.proofValidity(), 10 minutes);
+        assertEq(block.chainid, 8453);
         assertTrue(script.implementationOf(address(gated)) != address(0));
     }
 
@@ -45,6 +47,6 @@ contract DeployForkTest is Test {
         bytes memory fake = abi.encodePacked(bytes4(0x4388a21c), new bytes(256));
         vm.expectRevert();
         vm.prank(client);
-        gated.gatedTransfer(500, fake);
+        gated.gatedTransfer(1, block.timestamp, 500, fake);
     }
 }

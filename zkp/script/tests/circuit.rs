@@ -10,13 +10,23 @@ use zkp_lib::{Inputs, PublicValues, ALLOWED_ADDRESSES, FORBIDDEN_ADDRESS};
 
 const ELF: Elf = include_elf!("zkp-program");
 
-fn stdin_for(address: Address, amount: u64) -> SP1Stdin {
-    let inputs = Inputs {
+const CHAIN_ID: u64 = 8453;
+const NONCE: u64 = 0xabcdef;
+const ISSUED_AT: u64 = 1_800_000_000;
+
+fn inputs(address: Address, amount: u64) -> Inputs {
+    Inputs {
         toBeCheckedAddress: address,
+        chainId: U256::from(CHAIN_ID),
+        nonce: U256::from(NONCE),
+        issuedAt: U256::from(ISSUED_AT),
         paymentAmount: U256::from(amount),
-    };
+    }
+}
+
+fn stdin_for(address: Address, amount: u64) -> SP1Stdin {
     let mut stdin = SP1Stdin::new();
-    stdin.write_vec(Inputs::abi_encode(&inputs));
+    stdin.write_vec(Inputs::abi_encode(&inputs(address, amount)));
     stdin
 }
 
@@ -38,17 +48,23 @@ fn execute(address: Address, amount: u64) -> (u64, Vec<u8>) {
 
 fn public_values(amount: u64) -> Vec<u8> {
     PublicValues::abi_encode(&PublicValues {
+        chainId: U256::from(CHAIN_ID),
+        nonce: U256::from(NONCE),
+        issuedAt: U256::from(ISSUED_AT),
         paymentAmount: U256::from(amount),
     })
 }
 
-/// The circuit must succeed, and commit only the payment amount, so the address stays private.
+/// The circuit must succeed, and commit everything but the address, which stays private.
 fn assert_accepted(result: (u64, Vec<u8>), amount: u64) {
     let (exit_code, committed) = result;
     assert_eq!(exit_code, 0, "the circuit must succeed");
-    assert_eq!(committed.len(), 32);
+    assert_eq!(committed.len(), 4 * 32);
     assert_eq!(committed, public_values(amount));
     let decoded = PublicValues::abi_decode(&committed).unwrap();
+    assert_eq!(decoded.chainId, U256::from(CHAIN_ID));
+    assert_eq!(decoded.nonce, U256::from(NONCE));
+    assert_eq!(decoded.issuedAt, U256::from(ISSUED_AT));
     assert_eq!(decoded.paymentAmount, U256::from(amount));
 }
 
@@ -59,7 +75,7 @@ fn assert_rejected(result: (u64, Vec<u8>)) {
 }
 
 #[test]
-fn accepts_each_listed_address_and_commits_only_the_amount() {
+fn accepts_each_listed_address_and_commits_all_but_the_address() {
     for address in ALLOWED_ADDRESSES {
         assert_accepted(execute(address, 10_000), 10_000);
     }
@@ -112,9 +128,24 @@ fn real_proofs_only_verify_for_valid_inputs() {
         .verify(&proof, pk.verifying_key(), None)
         .expect("a valid proof must verify");
 
-    // The proof does not verify for a different payment amount.
-    proof.public_values = SP1PublicValues::from(public_values(501).as_slice());
-    assert!(client.verify(&proof, pk.verifying_key(), None).is_err());
+    // The proof does not verify if any public value is changed.
+    let original = proof.public_values.clone();
+    let changes: [fn(&mut PublicValues); 4] = [
+        |v| v.chainId = U256::from(1),
+        |v| v.nonce += U256::from(1),
+        |v| v.issuedAt += U256::from(600),
+        |v| v.paymentAmount = U256::from(501),
+    ];
+    for change in changes {
+        let mut changed = inputs(ALLOWED_ADDRESSES[0], 500).public_values();
+        change(&mut changed);
+        proof.public_values = SP1PublicValues::from(PublicValues::abi_encode(&changed).as_slice());
+        assert!(client.verify(&proof, pk.verifying_key(), None).is_err());
+    }
+    proof.public_values = original;
+    client
+        .verify(&proof, pk.verifying_key(), None)
+        .expect("the original proof must still verify");
 
     // A proof of a failed run does not verify.
     let failed = client

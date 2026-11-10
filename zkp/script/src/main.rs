@@ -1,7 +1,8 @@
 //! Generates a proof for some inputs and writes it to a JSON file.
 //!
-//! The inputs are read from stdin as JSON, `{"toBeCheckedAddress": "0x...",
-//! "paymentAmount": "500"}`, so the private address does not appear in the process list.
+//! The inputs are read from stdin as JSON, so the private address does not appear in the
+//! process list. Numbers are decimal strings:
+//! `{"toBeCheckedAddress": "0x...", "chainId": "8453", "nonce": "...", "issuedAt": "...", "paymentAmount": "500"}`
 //!
 //! The prover is chosen by the SP1_PROVER and NETWORK_PRIVATE_KEY environment variables.
 
@@ -43,7 +44,14 @@ struct Args {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct InputJson {
     to_be_checked_address: String,
+    chain_id: String,
+    nonce: String,
+    issued_at: String,
     payment_amount: String,
+}
+
+fn uint256(value: &str, name: &str) -> Result<U256, String> {
+    U256::from_str_radix(value, 10).map_err(|_| format!("{name} is not a uint256"))
 }
 
 #[derive(Serialize)]
@@ -66,11 +74,12 @@ fn read_inputs() -> Result<Inputs, String> {
         .to_be_checked_address
         .parse()
         .map_err(|_| "toBeCheckedAddress is not an address".to_string())?;
-    let amount = U256::from_str_radix(&json.payment_amount, 10)
-        .map_err(|_| "paymentAmount is not a uint256".to_string())?;
     Ok(Inputs {
         toBeCheckedAddress: address,
-        paymentAmount: amount,
+        chainId: uint256(&json.chain_id, "chainId")?,
+        nonce: uint256(&json.nonce, "nonce")?,
+        issuedAt: uint256(&json.issued_at, "issuedAt")?,
+        paymentAmount: uint256(&json.payment_amount, "paymentAmount")?,
     })
 }
 
@@ -90,9 +99,7 @@ fn main() -> ExitCode {
         return ExitCode::from(EXIT_REJECTED);
     }
 
-    let expected = PublicValues::abi_encode(&PublicValues {
-        paymentAmount: inputs.paymentAmount,
-    });
+    let expected = PublicValues::abi_encode(&inputs.public_values());
     let mut stdin = SP1Stdin::new();
     stdin.write_vec(Inputs::abi_encode(&inputs));
 

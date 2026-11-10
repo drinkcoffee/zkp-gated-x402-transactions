@@ -5,16 +5,38 @@ use alloy_sol_types::sol;
 use std::fmt;
 
 sol! {
-    /// The inputs to the circuit, ABI encoded. The address stays private, and the
-    /// payment amount is committed as the proof's public value.
+    /// The inputs to the circuit, ABI encoded. The address stays private. Everything
+    /// else is committed as the proof's public values.
     struct Inputs {
         address toBeCheckedAddress;
+        uint256 chainId;
+        uint256 nonce;
+        uint256 issuedAt;
         uint256 paymentAmount;
     }
 
     /// The public values of the proof, ABI encoded so that Solidity can decode them.
+    ///
+    /// The circuit does not check the chain ID, nonce or time. It commits them so the
+    /// proof is bound to them, and the contract checks them: the chain ID must be the
+    /// chain's, each nonce works once, and the proof expires a set time after issuedAt.
     struct PublicValues {
+        uint256 chainId;
+        uint256 nonce;
+        uint256 issuedAt;
         uint256 paymentAmount;
+    }
+}
+
+impl Inputs {
+    /// The public values the circuit commits for these inputs.
+    pub fn public_values(&self) -> PublicValues {
+        PublicValues {
+            chainId: self.chainId,
+            nonce: self.nonce,
+            issuedAt: self.issuedAt,
+            paymentAmount: self.paymentAmount,
+        }
     }
 }
 
@@ -70,8 +92,20 @@ mod tests {
     fn values(address: Address, amount: u64) -> Inputs {
         Inputs {
             toBeCheckedAddress: address,
+            chainId: U256::from(8453),
+            nonce: U256::from(7),
+            issuedAt: U256::from(1_800_000_000),
             paymentAmount: U256::from(amount),
         }
+    }
+
+    #[test]
+    fn public_values_are_everything_but_the_address() {
+        let public = values(ALLOWED_ADDRESSES[0], 500).public_values();
+        assert_eq!(public.chainId, U256::from(8453));
+        assert_eq!(public.nonce, U256::from(7));
+        assert_eq!(public.issuedAt, U256::from(1_800_000_000));
+        assert_eq!(public.paymentAmount, U256::from(500));
     }
 
     #[test]

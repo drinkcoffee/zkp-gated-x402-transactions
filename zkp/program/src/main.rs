@@ -1,5 +1,5 @@
-//! The zero knowledge circuit. It checks its inputs, then commits only the payment
-//! amount, so the to be checked address stays private.
+//! The zero knowledge circuit. It checks its inputs, then commits everything except the
+//! to be checked address, which stays private.
 //!
 //! If the inputs break a rule, this program panics. A prover could still prove that
 //! failed run, but the proof has a non-zero exit code, and SP1's verifiers reject it.
@@ -16,8 +16,5 @@ pub fn main() {
 
     check(&inputs).expect("inputs break a rule");
 
-    let public = PublicValues {
-        paymentAmount: inputs.paymentAmount,
-    };
-    sp1_zkvm::io::commit_slice(&PublicValues::abi_encode(&public));
+    sp1_zkvm::io::commit_slice(&PublicValues::abi_encode(&inputs.public_values()));
 }
