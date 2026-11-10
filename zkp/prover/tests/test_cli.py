@@ -65,8 +65,8 @@ def isolated(tmp_path, monkeypatch):
     RPC_CALLS.clear()
 
 
-def run(rpc_url, *args, max_amount="10000", amount="500", path=""):
-    return cli.main([ADDRESS, max_amount, amount, "--rpc-url", rpc_url + path, *args])
+def run(rpc_url, *args, amount="500", path=""):
+    return cli.main([ADDRESS, amount, "--rpc-url", rpc_url + path, *args])
 
 
 def written(tmp_path):
@@ -78,11 +78,7 @@ def test_writes_a_submission_ready_for_base(rpc_url, tmp_path):
     result = written(tmp_path)
     assert result["readyForBase"] is True
     assert result["chainId"] == 8453
-    assert result["publicValues"] == {
-        "toBeCheckedAddress": ADDRESS,
-        "maxPaymentAmount": "10000",
-        "paymentAmount": "500",
-    }
+    assert result["publicValues"] == {"paymentAmount": "500"}
     assert result["proofSystem"] == "groth16"
     assert result["verifier"] == GROTH16_GATEWAY
     assert result["function"] == "verifyProof(bytes32,bytes,bytes)"
@@ -99,13 +95,26 @@ def test_calldata_is_the_verifier_call(rpc_url, tmp_path):
     assert proof == bytes.fromhex("cd" * 40)
 
 
-def test_public_values_are_three_abi_words(rpc_url, tmp_path):
-    run(rpc_url)
+def test_the_only_public_value_is_the_payment_amount(rpc_url, tmp_path):
+    run(rpc_url, amount="1234")
     encoded = bytes.fromhex(written(tmp_path)["arguments"]["publicValues"][2:])
-    assert len(encoded) == 96
-    address, max_amount, amount = decode(["address", "uint256", "uint256"], encoded)
-    assert address.lower() == ADDRESS.lower()
-    assert (max_amount, amount) == (10000, 500)
+    assert len(encoded) == 32
+    assert decode(["uint256"], encoded) == (1234,)
+
+
+def test_the_address_is_not_in_the_output(rpc_url, tmp_path, capsys):
+    assert run(rpc_url) == 0
+    assert ADDRESS[2:].lower() not in (tmp_path / "proof.json").read_text().lower()
+    assert ADDRESS[2:].lower() not in capsys.readouterr().err.lower()
+
+
+def test_inputs_go_to_the_host_on_stdin(rpc_url, tmp_path, monkeypatch):
+    record = tmp_path / "record.json"
+    monkeypatch.setenv("FAKE_HOST_RECORD", str(record))
+    assert run(rpc_url, amount="1234") == 0
+    sent = json.loads(record.read_text())
+    assert sent["stdin"] == {"toBeCheckedAddress": ADDRESS, "paymentAmount": "1234"}
+    assert not any(ADDRESS[2:].lower() in arg.lower() for arg in sent["argv"])
 
 
 def test_checks_the_proof_on_base(rpc_url, tmp_path):
@@ -126,9 +135,11 @@ def test_plonk_uses_its_own_verifier(rpc_url, tmp_path):
     assert result["verifier"] == PLONK_GATEWAY
 
 
-def test_lowercase_address_is_accepted(rpc_url, tmp_path):
-    assert cli.main([ADDRESS.lower(), "10000", "500", "--rpc-url", rpc_url]) == 0
-    assert written(tmp_path)["publicValues"]["toBeCheckedAddress"] == ADDRESS
+def test_lowercase_address_is_sent_checksummed(rpc_url, tmp_path, monkeypatch):
+    record = tmp_path / "record.json"
+    monkeypatch.setenv("FAKE_HOST_RECORD", str(record))
+    assert cli.main([ADDRESS.lower(), "500", "--rpc-url", rpc_url]) == 0
+    assert json.loads(record.read_text())["stdin"]["toBeCheckedAddress"] == ADDRESS
 
 
 def test_custom_output_path(rpc_url, tmp_path):
@@ -138,7 +149,7 @@ def test_custom_output_path(rpc_url, tmp_path):
 
 def test_rpc_url_from_environment(rpc_url, tmp_path, monkeypatch):
     monkeypatch.setenv("BASE_RPC_URL", rpc_url)
-    assert cli.main([ADDRESS, "10000", "500"]) == 0
+    assert cli.main([ADDRESS, "500"]) == 0
     assert len(RPC_CALLS) == 1
 
 
@@ -156,6 +167,7 @@ def test_rejected_values_write_nothing(rpc_url, tmp_path, monkeypatch, capsys):
         ("crash", "exit code 101"),
         ("no-output", "wrote no valid proof"),
         ("wrong-values", "different public values"),
+        ("address-leaked", "different public values"),
         ("bad-vkey", "invalid vkey"),
     ],
 )
@@ -200,14 +212,15 @@ def test_cargo_not_installed(rpc_url, monkeypatch, capsys):
 @pytest.mark.parametrize(
     "args",
     [
-        ["0x123", "10000", "500"],
-        [ADDRESS, "abc", "500"],
-        [ADDRESS, "10000", "1.5"],
-        [ADDRESS, "10000", "-1"],
-        [ADDRESS, "10000", str(2**256)],
-        [ADDRESS, "10000", "9" * 5000],
-        [ADDRESS, "10000"],
-        [ADDRESS, "10000", "500", "--system", "stark"],
+        ["0x123", "500"],
+        [ADDRESS, "abc"],
+        [ADDRESS, "1.5"],
+        [ADDRESS, "-1"],
+        [ADDRESS, str(2**256)],
+        [ADDRESS, "9" * 5000],
+        [ADDRESS],
+        [ADDRESS, "10000", "500"],
+        [ADDRESS, "500", "--system", "stark"],
     ],
 )
 def test_invalid_arguments(args):
@@ -218,12 +231,9 @@ def test_invalid_arguments(args):
 
 def test_host_command_matches_the_rust_arguments(tmp_path):
     output = tmp_path / "proof.json"
-    command = ORIGINAL_HOST_COMMAND(ADDRESS, 10000, 500, "plonk", output)
+    command = ORIGINAL_HOST_COMMAND("plonk", output)
     assert command == [
         "cargo", "run", "--release", "--quiet", "--bin", "zkp-host", "--",
-        "--to-be-checked-address", ADDRESS,
-        "--max-payment-amount", "10000",
-        "--payment-amount", "500",
         "--system", "plonk",
         "--output", str(output),
     ]  # fmt: skip

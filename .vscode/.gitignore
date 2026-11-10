@@ -1,0 +1,5 @@
+# Ignore everything in this directory except the gitignore file itself
+# and the settings file.
+
+!.gitignore
+!settings.json

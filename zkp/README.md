@@ -4,13 +4,12 @@ A [Succinct SP1](https://docs.succinct.xyz/docs/sp1/introduction) zero knowledge
 
 ## The proof
 
-The proof has three public values, ABI encoded as `(address, uint256, uint256)`:
+The circuit checks two inputs. The payment amount is the proof's only public value, ABI encoded as `uint256`. The to be checked address is private, so the proof reveals nothing about it.
 
-| Public value | Rule |
-| --- | --- |
-| To be checked address | Must be in the list of addresses, and must not be `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` |
-| Max payment amount | Must equal 10000 |
-| Payment amount | Must be less than or equal to the max payment amount |
+| Input | Visibility | Rule |
+| --- | --- | --- |
+| To be checked address | Private | Must be in the list of addresses, and must not be `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` |
+| Payment amount | Public | Must be less than or equal to 10000 |
 
 Amounts are in USDC's atomic units, and USDC has six decimal places on Base, so 10000 is $0.01.
 
@@ -19,7 +18,7 @@ The list of addresses is:
 - `0x141544BF5bf25cECeaB4B804Fe38b27B698B5F07`
 - `0x738c05d470351daaca60a5897d7154b0a8e90751`
 
-The list and the rules are compiled into the circuit, in `lib/src/lib.rs`. Changing them changes the program's verification key (`programVKey`), so any contract that checks these proofs needs the new key.
+The list, the limit of 10000 and the rules are compiled into the circuit, in `lib/src/lib.rs`. Changing them changes the program's verification key (`programVKey`), so any contract that checks these proofs needs the new key.
 
 ## Layout
 
@@ -76,13 +75,13 @@ Variables already set in the environment take precedence over `.env`. Proving wi
 
 ```sh
 cd prover
-uv run zkp-prove <to be checked address> <max payment amount> <payment amount>
+uv run zkp-prove <to be checked address> <payment amount>
 ```
 
 For example:
 
 ```sh
-uv run zkp-prove 0x141544BF5bf25cECeaB4B804Fe38b27B698B5F07 10000 500
+uv run zkp-prove 0x141544BF5bf25cECeaB4B804Fe38b27B698B5F07 500
 ```
 
 | Option | Purpose | Default |
@@ -91,7 +90,7 @@ uv run zkp-prove 0x141544BF5bf25cECeaB4B804Fe38b27B698B5F07 10000 500
 | `--output` | File to write the result to. An existing file is never replaced | `proof.json` |
 | `--rpc-url` | Base JSON-RPC endpoint used to check the proof | `BASE_RPC_URL` |
 
-Public values that break a rule fail before any prover is used, and no file is written. After generating a proof, the program asks the verifier on Base to check it, which is read-only and costs nothing.
+Inputs that break a rule fail before any prover is used, and no file is written. The inputs are passed to the Rust host on stdin, and the private address is never written to the result. The address is still in your shell history, and the `network` prover receives it, because it runs the circuit. After generating a proof, the program asks the verifier on Base to check it, which is read-only and costs nothing.
 
 ## The result
 
@@ -100,8 +99,6 @@ Public values that break a rule fail before any prover is used, and no file is w
   "readyForBase": true,
   "chainId": 8453,
   "publicValues": {
-    "toBeCheckedAddress": "0x141544BF5bf25cECeaB4B804Fe38b27B698B5F07",
-    "maxPaymentAmount": "10000",
     "paymentAmount": "500"
   },
   "proofSystem": "groth16",
@@ -109,7 +106,7 @@ Public values that break a rule fail before any prover is used, and no file is w
   "function": "verifyProof(bytes32,bytes,bytes)",
   "arguments": {
     "programVKey": "0x...",
-    "publicValues": "0x...",
+    "publicValues": "0x00000000000000000000000000000000000000000000000000000000000001f4",
     "proofBytes": "0x..."
   },
   "calldata": "0x41493c60..."

@@ -1,14 +1,19 @@
-//! The rules that the zero knowledge circuit enforces on its public values.
+//! The rules that the zero knowledge circuit enforces on its inputs.
 
 use alloy_primitives::{address, Address, U256};
 use alloy_sol_types::sol;
 use std::fmt;
 
 sol! {
+    /// The inputs to the circuit, ABI encoded. The address stays private, and the
+    /// payment amount is committed as the proof's public value.
+    struct Inputs {
+        address toBeCheckedAddress;
+        uint256 paymentAmount;
+    }
+
     /// The public values of the proof, ABI encoded so that Solidity can decode them.
     struct PublicValues {
-        address toBeCheckedAddress;
-        uint256 maxPaymentAmount;
         uint256 paymentAmount;
     }
 }
@@ -22,16 +27,15 @@ pub const ALLOWED_ADDRESSES: [Address; 2] = [
 /// The address that the to be checked address must never be.
 pub const FORBIDDEN_ADDRESS: Address = address!("833589fCD6eDb6E08f4c7C32D4f71b54bdA02913");
 
-/// The value that the max payment amount must equal: $0.01, in USDC's atomic units.
+/// The largest payment amount allowed: $0.01, in USDC's atomic units.
 /// USDC has six decimal places on Base.
-pub const REQUIRED_MAX_PAYMENT_AMOUNT: U256 = U256::from_limbs([10_000, 0, 0, 0]);
+pub const MAX_PAYMENT_AMOUNT: U256 = U256::from_limbs([10_000, 0, 0, 0]);
 
-/// A rule that the public values break.
+/// A rule that the inputs break.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Violation {
     ForbiddenAddress,
     AddressNotInList,
-    WrongMaxPaymentAmount,
     PaymentAmountTooLarge,
 }
 
@@ -40,26 +44,20 @@ impl fmt::Display for Violation {
         f.write_str(match self {
             Self::ForbiddenAddress => "the to be checked address is the forbidden address",
             Self::AddressNotInList => "the to be checked address is not in the list of addresses",
-            Self::WrongMaxPaymentAmount => "the max payment amount does not equal 10000 ($0.01)",
-            Self::PaymentAmountTooLarge => {
-                "the payment amount is greater than the max payment amount"
-            }
+            Self::PaymentAmountTooLarge => "the payment amount is greater than 10000 ($0.01)",
         })
     }
 }
 
-/// Check the public values against every rule.
-pub fn check(values: &PublicValues) -> Result<(), Violation> {
+/// Check the inputs against every rule.
+pub fn check(values: &Inputs) -> Result<(), Violation> {
     if values.toBeCheckedAddress == FORBIDDEN_ADDRESS {
         return Err(Violation::ForbiddenAddress);
     }
     if !ALLOWED_ADDRESSES.contains(&values.toBeCheckedAddress) {
         return Err(Violation::AddressNotInList);
     }
-    if values.maxPaymentAmount != REQUIRED_MAX_PAYMENT_AMOUNT {
-        return Err(Violation::WrongMaxPaymentAmount);
-    }
-    if values.paymentAmount > values.maxPaymentAmount {
+    if values.paymentAmount > MAX_PAYMENT_AMOUNT {
         return Err(Violation::PaymentAmountTooLarge);
     }
     Ok(())
@@ -69,10 +67,9 @@ pub fn check(values: &PublicValues) -> Result<(), Violation> {
 mod tests {
     use super::*;
 
-    fn values(address: Address, max: u64, amount: u64) -> PublicValues {
-        PublicValues {
+    fn values(address: Address, amount: u64) -> Inputs {
+        Inputs {
             toBeCheckedAddress: address,
-            maxPaymentAmount: U256::from(max),
             paymentAmount: U256::from(amount),
         }
     }
@@ -80,20 +77,20 @@ mod tests {
     #[test]
     fn accepts_each_listed_address() {
         for address in ALLOWED_ADDRESSES {
-            assert_eq!(check(&values(address, 10_000, 500)), Ok(()));
+            assert_eq!(check(&values(address, 500)), Ok(()));
         }
     }
 
     #[test]
     fn accepts_payment_amount_limits() {
-        assert_eq!(check(&values(ALLOWED_ADDRESSES[0], 10_000, 0)), Ok(()));
-        assert_eq!(check(&values(ALLOWED_ADDRESSES[0], 10_000, 10_000)), Ok(()));
+        assert_eq!(check(&values(ALLOWED_ADDRESSES[0], 0)), Ok(()));
+        assert_eq!(check(&values(ALLOWED_ADDRESSES[0], 10_000)), Ok(()));
     }
 
     #[test]
     fn rejects_forbidden_address() {
         assert_eq!(
-            check(&values(FORBIDDEN_ADDRESS, 10_000, 500)),
+            check(&values(FORBIDDEN_ADDRESS, 500)),
             Err(Violation::ForbiddenAddress)
         );
     }
@@ -101,33 +98,23 @@ mod tests {
     #[test]
     fn rejects_address_not_in_list() {
         assert_eq!(
-            check(&values(Address::ZERO, 10_000, 500)),
+            check(&values(Address::ZERO, 500)),
             Err(Violation::AddressNotInList)
         );
     }
 
     #[test]
-    fn rejects_wrong_max_payment_amount() {
-        for max in [0, 1000, 9_999, 10_001] {
-            assert_eq!(
-                check(&values(ALLOWED_ADDRESSES[0], max, 0)),
-                Err(Violation::WrongMaxPaymentAmount)
-            );
-        }
-    }
-
-    #[test]
-    fn rejects_max_payment_amount_that_only_matches_in_the_low_bits() {
-        let mut large = values(ALLOWED_ADDRESSES[0], 10_000, 0);
-        large.maxPaymentAmount += U256::from(1) << 64;
-        assert_eq!(check(&large), Err(Violation::WrongMaxPaymentAmount));
-    }
-
-    #[test]
     fn rejects_payment_amount_above_max() {
         assert_eq!(
-            check(&values(ALLOWED_ADDRESSES[0], 10_000, 10_001)),
+            check(&values(ALLOWED_ADDRESSES[0], 10_001)),
             Err(Violation::PaymentAmountTooLarge)
         );
+    }
+
+    #[test]
+    fn rejects_payment_amount_that_only_fits_in_the_low_bits() {
+        let mut large = values(ALLOWED_ADDRESSES[0], 0);
+        large.paymentAmount += U256::from(1) << 64;
+        assert_eq!(check(&large), Err(Violation::PaymentAmountTooLarge));
     }
 }

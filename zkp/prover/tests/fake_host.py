@@ -8,27 +8,33 @@ import sys
 from eth_abi import encode
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--to-be-checked-address")
-parser.add_argument("--max-payment-amount", type=int)
-parser.add_argument("--payment-amount", type=int)
 parser.add_argument("--system")
 parser.add_argument("--output")
 args = parser.parse_args()
 
+# The inputs arrive on stdin. Record them so tests can check how they were sent.
+inputs = json.load(sys.stdin)
+if set(inputs) != {"toBeCheckedAddress", "paymentAmount"}:
+    sys.exit(2)
+if record := os.environ.get("FAKE_HOST_RECORD"):
+    with open(record, "w") as file:
+        json.dump({"argv": sys.argv[1:], "stdin": inputs}, file)
+
 mode = os.environ.get("FAKE_HOST_MODE", "ok")
 if mode == "rejected":
-    print("error: the max payment amount does not equal 10000 ($0.01)", file=sys.stderr)
+    print("error: the payment amount is greater than 10000 ($0.01)", file=sys.stderr)
     sys.exit(3)
 if mode == "crash":
     sys.exit(101)
 if mode == "no-output":
     sys.exit(0)
 
-amount = args.payment_amount + 1 if mode == "wrong-values" else args.payment_amount
-public_values = encode(
-    ["address", "uint256", "uint256"],
-    [args.to_be_checked_address, args.max_payment_amount, amount],
-)
+amount = int(inputs["paymentAmount"])
+if mode == "wrong-values":
+    amount += 1
+public_values = encode(["uint256"], [amount])
+if mode == "address-leaked":
+    public_values = encode(["address", "uint256"], [inputs["toBeCheckedAddress"], amount])
 proof = {
     "vkey": "0x" + ("ab" * 32 if mode != "bad-vkey" else "ab"),
     "publicValues": "0x" + public_values.hex(),

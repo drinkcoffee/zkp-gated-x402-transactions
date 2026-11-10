@@ -1,7 +1,9 @@
-"""Generate a zero knowledge proof for some public values, ready to submit to Base.
+"""Generate a zero knowledge proof for some inputs, ready to submit to Base.
 
-The rules on the public values live only in the circuit. This program runs the Rust
-host to generate the proof, then packages it as a call to Succinct's verifier on Base.
+The rules on the inputs live only in the circuit. This program runs the Rust host to
+generate the proof, then packages it as a call to Succinct's verifier on Base. The
+payment amount is the proof's only public value. The to be checked address is private,
+and is never written to the output.
 """
 
 import argparse
@@ -56,31 +58,30 @@ def _uint256(value: str) -> int:
     return number
 
 
-def host_command(address: str, max_amount: int, amount: int, system: str, output: Path) -> list[str]:
+def host_command(system: str, output: Path) -> list[str]:
+    # The inputs go to the host on stdin, so the private address is not in the process list.
     return [
         "cargo", "run", "--release", "--quiet", "--bin", "zkp-host", "--",
-        "--to-be-checked-address", address,
-        "--max-payment-amount", str(max_amount),
-        "--payment-amount", str(amount),
         "--system", system,
         "--output", str(output),
     ]  # fmt: skip
 
 
-def generate_proof(address: str, max_amount: int, amount: int, system: str) -> dict[str, Any]:
+def generate_proof(address: str, amount: int, system: str) -> dict[str, Any]:
     """Run the Rust host and return the proof it wrote."""
     with tempfile.TemporaryDirectory() as directory:
         output = Path(directory) / "proof.json"
-        command = host_command(address, max_amount, amount, system, output)
+        command = host_command(system, output)
+        inputs = json.dumps({"toBeCheckedAddress": address, "paymentAmount": str(amount)})
         try:
             # Send the host's stdout to file descriptor 2, the process's stderr.
-            result = subprocess.run(command, cwd=ZKP_DIR, stdout=2)
+            result = subprocess.run(command, cwd=ZKP_DIR, input=inputs.encode(), stdout=2)
         except FileNotFoundError:
             raise ProofError(
                 f"{command[0]} was not found: install Rust and SP1 (see zkp/README.md)"
             ) from None
         if result.returncode == EXIT_REJECTED:
-            raise ProofError("the public values break a rule, so no proof exists for them")
+            raise ProofError("the inputs break a rule, so no proof exists for them")
         if result.returncode != 0:
             raise ProofError(f"the proof host failed with exit code {result.returncode}")
         try:
@@ -99,9 +100,7 @@ def _hex_bytes(proof: dict[str, Any], field: str) -> bytes:
         raise ProofError(f"the proof host wrote an invalid {field}") from None
 
 
-def build_submission(
-    proof: dict[str, Any], address: str, max_amount: int, amount: int, system: str
-) -> dict[str, Any]:
+def build_submission(proof: dict[str, Any], amount: int, system: str) -> dict[str, Any]:
     """Package a proof as a call to the verifier, after checking what it proves."""
     vkey = _hex_bytes(proof, "vkey")
     public_values = _hex_bytes(proof, "publicValues")
@@ -109,21 +108,18 @@ def build_submission(
     if len(vkey) != 32:
         raise ProofError("the proof host wrote an invalid vkey")
 
-    expected = encode(["address", "uint256", "uint256"], [address, max_amount, amount])
-    if public_values != expected:
+    # Only the payment amount is public. Anything else could reveal the private address.
+    if public_values != encode(["uint256"], [amount]):
         raise ProofError("the proof commits to different public values than were requested")
 
     selector = keccak(text=VERIFY_FUNCTION)[:4]
     arguments = encode(["bytes32", "bytes", "bytes"], [vkey, public_values, proof_bytes])
-    decoded = decode(["address", "uint256", "uint256"], public_values)
     return {
         "readyForBase": False,
         "chainId": BASE_CHAIN_ID,
         "publicValues": {
-            "toBeCheckedAddress": to_checksum_address(decoded[0]),
-            # Strings, because JSON readers often lose precision on large numbers.
-            "maxPaymentAmount": str(decoded[1]),
-            "paymentAmount": str(decoded[2]),
+            # A string, because JSON readers often lose precision on large numbers.
+            "paymentAmount": str(decode(["uint256"], public_values)[0]),
         },
         "proofSystem": system,
         "verifier": VERIFIER_GATEWAYS[system],
@@ -168,10 +164,8 @@ def run(args: argparse.Namespace) -> None:
 
     system = args.system
     address = args.to_be_checked_address
-    proof = generate_proof(address, args.max_payment_amount, args.payment_amount, system)
-    submission = build_submission(
-        proof, address, args.max_payment_amount, args.payment_amount, system
-    )
+    proof = generate_proof(address, args.payment_amount, system)
+    submission = build_submission(proof, args.payment_amount, system)
 
     if submission["arguments"]["proofBytes"] == "0x":
         _write(submission, args.output)
@@ -191,9 +185,8 @@ def run(args: argparse.Namespace) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="zkp-prove", description=__doc__)
-    parser.add_argument("to_be_checked_address", type=_address, help="the to be checked address")
-    parser.add_argument("max_payment_amount", type=_uint256, help="the max payment amount")
-    parser.add_argument("payment_amount", type=_uint256, help="the payment amount")
+    parser.add_argument("to_be_checked_address", type=_address, help="the to be checked address (private)")
+    parser.add_argument("payment_amount", type=_uint256, help="the payment amount (public)")
     parser.add_argument(
         "--system", choices=sorted(VERIFIER_GATEWAYS), default="groth16", help="proof system"
     )
