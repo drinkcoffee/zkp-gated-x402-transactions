@@ -42,7 +42,7 @@ foundryup
 Then install the dependencies, from this directory:
 
 ```sh
-forge install foundry-rs/forge-std@v1.9.7 OpenZeppelin/openzeppelin-contracts@v5.4.0 OpenZeppelin/openzeppelin-contracts-upgradeable@v5.4.0
+forge install foundry-rs/forge-std@v1.17.0 OpenZeppelin/openzeppelin-contracts@v5.4.0 OpenZeppelin/openzeppelin-contracts-upgradeable@v5.4.0
 ```
 
 Copy `.env.example` to `.env` and set your values. Forge reads `.env` automatically.

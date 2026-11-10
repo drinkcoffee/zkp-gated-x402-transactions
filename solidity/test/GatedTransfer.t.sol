@@ -9,6 +9,7 @@ import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.so
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
+import {GatedTransferLogicV1} from "../src/GatedTransferLogicV1.sol";
 import {GatedTransfer} from "../src/GatedTransfer.sol";
 import {ISP1Verifier} from "../src/ISP1Verifier.sol";
 
@@ -42,8 +43,11 @@ contract MockUSDC is ERC20 {
     }
 }
 
-contract GatedTransferV2 is GatedTransfer {
-    constructor(ISP1Verifier verifier, IERC20 usdc) GatedTransfer(verifier, usdc) {}
+// Every version must use the same storage layout as GatedTransfer, or the upgrade loses its state.
+contract GatedTransferV2 is GatedTransferLogicV1
+    layout at 0xdac00e02a38ebe4a8bb3c5296318f686d9c063e88cadded312c41482f1364400
+{
+    constructor(ISP1Verifier verifier, IERC20 usdc) GatedTransferLogicV1(verifier, usdc) {}
 
     function version() external pure returns (uint256) {
         return 2;
@@ -81,7 +85,7 @@ contract GatedTransferTest is Test {
         returns (GatedTransfer)
     {
         GatedTransfer implementation = new GatedTransfer(verifier, usdc);
-        bytes memory init = abi.encodeCall(GatedTransfer.initialize, (owner_, treasury_, client_, vkey));
+        bytes memory init = abi.encodeCall(GatedTransferLogicV1.initialize, (owner_, treasury_, client_, vkey));
         return GatedTransfer(address(new ERC1967Proxy(address(implementation), init)));
     }
 
@@ -108,19 +112,19 @@ contract GatedTransferTest is Test {
     }
 
     function test_constructor_rejects_zero_addresses() public {
-        vm.expectRevert(GatedTransfer.ZeroAddress.selector);
+        vm.expectRevert(GatedTransferLogicV1.ZeroAddress.selector);
         new GatedTransfer(ISP1Verifier(address(0)), usdc);
-        vm.expectRevert(GatedTransfer.ZeroAddress.selector);
+        vm.expectRevert(GatedTransferLogicV1.ZeroAddress.selector);
         new GatedTransfer(verifier, IERC20(address(0)));
     }
 
     function test_initialize_rejects_zero_values() public {
         GatedTransfer implementation = new GatedTransfer(verifier, usdc);
         bytes[4] memory inits = [
-            abi.encodeCall(GatedTransfer.initialize, (address(0), treasury, client, VKEY)),
-            abi.encodeCall(GatedTransfer.initialize, (owner, address(0), client, VKEY)),
-            abi.encodeCall(GatedTransfer.initialize, (owner, treasury, address(0), VKEY)),
-            abi.encodeCall(GatedTransfer.initialize, (owner, treasury, client, bytes32(0)))
+            abi.encodeCall(GatedTransferLogicV1.initialize, (address(0), treasury, client, VKEY)),
+            abi.encodeCall(GatedTransferLogicV1.initialize, (owner, address(0), client, VKEY)),
+            abi.encodeCall(GatedTransferLogicV1.initialize, (owner, treasury, address(0), VKEY)),
+            abi.encodeCall(GatedTransferLogicV1.initialize, (owner, treasury, client, bytes32(0)))
         ];
         for (uint256 i = 0; i < inits.length; i++) {
             vm.expectRevert();
@@ -138,7 +142,7 @@ contract GatedTransferTest is Test {
 
     function test_transfers_the_payment_amount_from_treasury_to_client() public {
         vm.expectEmit(address(gated));
-        emit GatedTransfer.GatedTransferExecuted(treasury, client, AMOUNT, keccak256(PROOF));
+        emit GatedTransferLogicV1.GatedTransferExecuted(treasury, client, AMOUNT, keccak256(PROOF));
         vm.prank(client);
         gated.gatedTransfer(AMOUNT, PROOF);
 
@@ -148,11 +152,11 @@ contract GatedTransferTest is Test {
     }
 
     function test_only_the_x402_client_can_call() public {
-        vm.expectRevert(abi.encodeWithSelector(GatedTransfer.NotX402Client.selector, stranger));
+        vm.expectRevert(abi.encodeWithSelector(GatedTransferLogicV1.NotX402Client.selector, stranger));
         vm.prank(stranger);
         gated.gatedTransfer(AMOUNT, PROOF);
 
-        vm.expectRevert(abi.encodeWithSelector(GatedTransfer.NotX402Client.selector, owner));
+        vm.expectRevert(abi.encodeWithSelector(GatedTransferLogicV1.NotX402Client.selector, owner));
         vm.prank(owner);
         gated.gatedTransfer(AMOUNT, PROOF);
     }
@@ -183,7 +187,7 @@ contract GatedTransferTest is Test {
     function test_a_proof_can_be_used_once() public {
         vm.startPrank(client);
         gated.gatedTransfer(AMOUNT, PROOF);
-        vm.expectRevert(abi.encodeWithSelector(GatedTransfer.ProofAlreadyUsed.selector, keccak256(PROOF)));
+        vm.expectRevert(abi.encodeWithSelector(GatedTransferLogicV1.ProofAlreadyUsed.selector, keccak256(PROOF)));
         gated.gatedTransfer(AMOUNT, PROOF);
         vm.stopPrank();
         assertEq(usdc.balanceOf(client), AMOUNT);
@@ -214,7 +218,7 @@ contract GatedTransferTest is Test {
         gated.setX402Client(newClient);
         vm.stopPrank();
 
-        vm.expectRevert(abi.encodeWithSelector(GatedTransfer.NotX402Client.selector, client));
+        vm.expectRevert(abi.encodeWithSelector(GatedTransferLogicV1.NotX402Client.selector, client));
         vm.prank(client);
         gated.gatedTransfer(AMOUNT, PROOF);
 
@@ -234,13 +238,13 @@ contract GatedTransferTest is Test {
 
         vm.startPrank(owner);
         vm.expectEmit(address(gated));
-        emit GatedTransfer.TreasurySet(treasury, newTreasury);
+        emit GatedTransferLogicV1.TreasurySet(treasury, newTreasury);
         gated.setTreasury(newTreasury);
         vm.expectEmit(address(gated));
-        emit GatedTransfer.X402ClientSet(client, newClient);
+        emit GatedTransferLogicV1.X402ClientSet(client, newClient);
         gated.setX402Client(newClient);
         vm.expectEmit(address(gated));
-        emit GatedTransfer.ProgramVKeySet(VKEY, newVKey);
+        emit GatedTransferLogicV1.ProgramVKeySet(VKEY, newVKey);
         gated.setProgramVKey(newVKey);
         vm.stopPrank();
 
@@ -263,11 +267,11 @@ contract GatedTransferTest is Test {
 
     function test_setters_reject_zero_values() public {
         vm.startPrank(owner);
-        vm.expectRevert(GatedTransfer.ZeroAddress.selector);
+        vm.expectRevert(GatedTransferLogicV1.ZeroAddress.selector);
         gated.setTreasury(address(0));
-        vm.expectRevert(GatedTransfer.ZeroAddress.selector);
+        vm.expectRevert(GatedTransferLogicV1.ZeroAddress.selector);
         gated.setX402Client(address(0));
-        vm.expectRevert(GatedTransfer.ZeroProgramVKey.selector);
+        vm.expectRevert(GatedTransferLogicV1.ZeroProgramVKey.selector);
         gated.setProgramVKey(bytes32(0));
         vm.stopPrank();
     }

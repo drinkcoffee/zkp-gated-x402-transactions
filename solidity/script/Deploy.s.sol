@@ -5,6 +5,7 @@ import {Script, console} from "forge-std/Script.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
+import {GatedTransferLogicV1} from "../src/GatedTransferLogicV1.sol";
 import {GatedTransfer} from "../src/GatedTransfer.sol";
 import {ISP1Verifier} from "../src/ISP1Verifier.sol";
 
@@ -46,7 +47,7 @@ contract Deploy is Script {
             new GatedTransfer(ISP1Verifier(BASE_SP1_VERIFIER_GATEWAY_GROTH16), IERC20(BASE_USDC));
         ERC1967Proxy proxy = new ERC1967Proxy(
             address(implementation),
-            abi.encodeCall(GatedTransfer.initialize, (owner, treasury, x402Client, programVKey))
+            abi.encodeCall(GatedTransferLogicV1.initialize, (owner, treasury, x402Client, programVKey))
         );
         return GatedTransfer(address(proxy));
     }
