@@ -2,14 +2,40 @@
 
 This repo contains several projects that combine to deliver a system where x402 transactions only succeed if an AI agent presents a zero knowledge proof to the blockchain showing that the transaction is authorized.
 
+The core idea of the agent is that it has two blockchain accounts: a treasury account and a payment account. USDC is only transferred to the payment account, thus enabling an x402 service payment, when an action has a zero knowledge proof.
+
 ## Architecture
 
-![Architecture](docs/architecture.svg)
+![Architecture](docs/architecture.png)
 
-A user uses a command line application that simulating an AI agent (python code in the [agent](./agent) directory). The agent gets payment information from an x402 server. The x402 server responds with payment information. The user approves the payment. The agent creates a zkp using some rust code and Succinct's SP1 [zkp](./zkp). The prover is run locally. The agent submits a transaction to Base blockchain with the proof to a contract that transfers some USDC from the agent's primary account to its payment account. The agent then submits the x402 transaction to the server, that then forwards it to the facilitator, that executes the payment. The agent then displays the returned information.
+The [AI agent](./agent) is a command line app written in Python. Given it is deterministic, there are no calls to an LLM, and no tool calling loop. The code simulates what an AI agent tool or guardrail call could be.
 
-TODO discuss zkp rules:
+The agent calls a public x402 server with no payment to gather payment information from the server. The server returns with a 402 payment required HTTP response code. This payment information is displayed to the user on standard out. The user at this point can exist the app by pressing any character except y or Y. 
 
-- Spending limit
+The agent then creates a [zero knowledge proof](./zkp) using Succinct's SP1 framework SP1. The proof is generated locally.
+
+The agent then submits the zk proof to the [GatedTransfer.sol](./solidity) contract. It uses Succinct's SP1Verifier.sol contract to verify the zk proof. If the proof is verified, the contract transfers the payment amount from the AI Agent's treasury account to its payment account. NOTE: the GatedTransfer.sol contract must be an approved spender of USDC for the treasury account. 
+
+The agent then signs a meta transaction and submits it along with the service request to the x402 server. The server uses a facilitator to submit the transfer from payment account to the server. The server returns the response to the agent. The agent displays the result to standard out.
 
 
+## Proofs
+
+The [proof circuit](.zkp/lib/src/lib.rs) currently limited to checking that an address is within a set of agreed addresses, and not the USDC contract address (0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913). 
+
+The circuit has a check for payment amount to restrict the calls to services costing less than or equal to US$0.01. Additionally, there are other values to prevent replaying of a proof.
+
+The parameters are:
+
+| Input | Visibility | Rule |
+| --- | --- | --- |
+| To be checked address | Private | Must be in the list of addresses, and must not be `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` |
+| Chain ID | Public | None in the circuit. [GatedTransfer](./solidity) only accepts its own chain's ID |
+| Nonce | Public | None in the circuit. GatedTransfer accepts each nonce once |
+| Issued at | Public | None in the circuit. GatedTransfer rejects a proof issued in the future, or older than its time limit, which is 10 minutes by default |
+| Payment amount | Public | Must be less than or equal to 10000 (US$0.01) |
+
+
+## Limitations
+
+The x402 service request are not linked to the generated proof. That is, the service request is either a HTTP GET or POST. For HTTP GET a URL is specified. For HTTP POST a URL and JSON encoded parameters are specified.
