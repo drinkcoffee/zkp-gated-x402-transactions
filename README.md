@@ -10,18 +10,18 @@ The core idea is that the agent has two blockchain accounts: a treasury account 
 
 The [AI agent](./agent) is a command line app written in Python. Given it is deterministic, there are no calls to an LLM, and no tool calling loop. The code simulates what an AI agent tool or guardrail call could be.
 
-The agent calls a public x402 server with no payment to gather payment information from the server. The server returns with a 402 payment required HTTP response code. This payment information is displayed to the user on standard out. The user at this point can exist the app by pressing any character except y or Y. 
+The agent calls a public x402 server with no payment to gather payment information from the server. The server returns with a 402 payment required HTTP response code. This payment information is displayed to the user on standard out. The user at this point can exit the app by pressing any character except _y_ or _Y_. 
 
-The agent then creates a [zero knowledge proof](./zkp) using Succinct's SP1 framework SP1. The proof is generated locally.
+The agent then creates a [zero knowledge proof](./zkp) locally using Succinct's SP1 framework. 
 
 The agent then submits the zk proof to the [GatedTransfer.sol](./solidity) contract. It uses Succinct's SP1Verifier.sol contract to verify the zk proof. If the proof is verified, the contract transfers the payment amount from the AI Agent's treasury account to its payment account. NOTE: the GatedTransfer.sol contract must be an approved spender of USDC for the treasury account. 
 
-The agent then signs a meta transaction and submits it along with the service request to the x402 server. The server uses a facilitator to submit the transfer from payment account to the server. The server returns the response to the agent. The agent displays the result to standard out.
+The agent then signs a meta transaction and submits it along with the service request to the x402 server. The server uses a facilitator to submit the transfer of USDC from the payment account to the server's account. The server returns the response to the agent. The agent displays the result to standard out.
 
 
 ## Proofs
 
-The [proof circuit](.zkp/lib/src/lib.rs) currently limited to checking that an address is within a set of agreed addresses, and not the USDC contract address (0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913). 
+The [proof circuit](.zkp/lib/src/lib.rs) is currently limited to checking that an address is within a set of agreed addresses, and not the USDC contract address (0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913). 
 
 The circuit has a check for payment amount to restrict the calls to services costing less than or equal to US$0.01. Additionally, there are other values to prevent replaying of a proof.
 
