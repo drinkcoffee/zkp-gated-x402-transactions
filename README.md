@@ -2,7 +2,7 @@
 
 This repo contains several projects that combine to deliver a system where x402 transactions only succeed if an AI agent presents a zero knowledge proof to the blockchain showing that the transaction is authorized.
 
-The core idea of the agent is that it has two blockchain accounts: a treasury account and a payment account. USDC is only transferred to the payment account, thus enabling an x402 service payment, when an action has a zero knowledge proof.
+The core idea is that the agent has two blockchain accounts: a treasury account and a payment account. USDC is only transferred to the payment account, thus enabling an x402 service payment, when an action has a zero knowledge proof.
 
 ## Architecture
 
