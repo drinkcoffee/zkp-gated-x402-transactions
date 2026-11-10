@@ -2,7 +2,7 @@
 
 This repo contains several projects that combine to deliver a system where x402 transactions only succeed if an AI agent presents a zero knowledge proof to the blockchain showing that the transaction is authorized.
 
-The core idea is that the agent has two blockchain accounts: a treasury account and a payment account. USDC is only transferred to the payment account, thus enabling an x402 service payment, when an action has a zero knowledge proof.
+The core idea is that the agent has two blockchain accounts: a treasury account and a payment account. USDC is only transferred to the payment account, thus enabling an x402 service payment, when an action is approved. The approval is proved using a zero knowledge proof.
 
 ## Architecture
 
@@ -38,4 +38,6 @@ The parameters are:
 
 ## Limitations
 
-The x402 service request are not linked to the generated proof. That is, the service request is either a HTTP GET or POST. For HTTP GET a URL is specified. For HTTP POST a URL and JSON encoded parameters are specified.
+* The x402 service request are not linked to the generated proof. That is, the service request is either a HTTP GET or POST. For HTTP GET a URL is specified. For HTTP POST a URL and JSON encoded parameters are specified.
+* The GatedTransfer.sol contract is linked to a single AI agent and its associated treasury and payment accounts. In particular, transfer transactions must be submitted by the payment account.
+* At present, the agent code does not call the zk proof code, and hence does not used GatedTransfer.sol.  
